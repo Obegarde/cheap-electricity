@@ -1,6 +1,9 @@
 const fs = require("fs");
 const { NetCDFReader } = require("netcdfjs");
 const https = require("https");
+const subProcess = require("child_process");
+
+fetchJSONFromDMI();
 
 function generateApiLink() {
   const apiKey = fs.readFileSync("./secrets.txt", {
@@ -23,6 +26,51 @@ function padWithLeadingZero(input) {
   }
 }
 
+function createFolders(folderName) {
+  try {
+    if (!fs.existsSync(folderName)) {
+      fs.mkdirSync(folderName);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  try {
+    if (!fs.existsSync(`${folderName}/GRIB`)) {
+      fs.mkdirSync(`${folderName}/GRIB`);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  try {
+    if (!fs.existsSync(`${folderName}/NetCDF`)) {
+      fs.mkdirSync(`${folderName}/NetCDF`);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+function convertFromGribToNetCDF(dateFolder, fileName) {
+  const withoutExt = fileName.split(".")[0];
+  let gribToCDFProcess = subProcess.spawn("cdo", [
+    "-f",
+    "nc",
+    "copy",
+    `./input_files/${dateFolder}/GRIB/${fileName}`,
+    `./input_files/${dateFolder}/NetCDF/${withoutExt}.nc`,
+  ]);
+  gribToCDFProcess.stdout.on("data", (data) => {
+    console.log(`stdout: ${data}`);
+  });
+
+  gribToCDFProcess.stderr.on("data", (data) => {
+    console.error(`stderr: ${data}`);
+  });
+
+  gribToCDFProcess.on("close", (code) => {
+    console.log(`child process exited with code ${code}`);
+  });
+}
+
 async function fetchJSONFromDMI() {
   const linkDate = generateApiLink();
   try {
@@ -35,26 +83,18 @@ async function fetchJSONFromDMI() {
     console.error(error.message);
   }
   const folderName = `./input_files/${linkDate[1]}/`;
-  try {
-    if (!fs.existsSync(folderName)) {
-      fs.mkdirSync(folderName);
-    }
-  } catch (err) {
-    console.error(err);
-  }
+  createFolders(folderName);
   for (let i = 0; i < data.features.length; i++) {
-    console.log(data.features[i].asset.data.href);
     downloadGRIBFromAmazon(
       data.features[i].asset.data.href,
-      folderName,
+      `${linkDate[1]}`,
       data.features[i].id,
     );
   }
 }
-fetchJSONFromDMI();
 
-function downloadGRIBFromAmazon(fileUrl, folderName, fileName) {
-  const dest = `${folderName}${fileName}`;
+function downloadGRIBFromAmazon(fileUrl, folderDate, fileName) {
+  const dest = `./input_files/${folderDate}/GRIB/${fileName}`;
   const file = fs.createWriteStream(dest);
   https
     .get(fileUrl, (response) => {
@@ -62,6 +102,7 @@ function downloadGRIBFromAmazon(fileUrl, folderName, fileName) {
       file.on("finish", () => {
         file.close(() => {
           console.log(`${fileName} successfully downloaded`);
+          convertFromGribToNetCDF(folderDate, fileName);
         });
       });
     })
