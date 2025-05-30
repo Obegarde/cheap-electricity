@@ -2,8 +2,10 @@ const fs = require("fs");
 const { NetCDFReader } = require("netcdfjs");
 const https = require("https");
 const subProcess = require("child_process");
-
-fetchJSONFromDMI();
+function main() {
+  fetchJSONFromDMI();
+}
+main();
 
 function generateApiLink() {
   const apiKey = fs.readFileSync("./secrets.txt", {
@@ -68,6 +70,7 @@ function convertFromGribToNetCDF(dateFolder, fileName) {
 
   gribToCDFProcess.on("close", (code) => {
     console.log(`child process exited with code ${code}`);
+    createAverageForTime(dateFolder, withoutExt);
   });
 }
 
@@ -125,15 +128,74 @@ function convertToTwoDimensions(inputArray, wantedLength) {
   return outArray;
 }
 
-function getData() {
-  var reader = new NetCDFReader(testData); // read the header
+function createAverageForTime(folderDate, runName) {
+  const data = fs.readFileSync(
+    `./input_files/${folderDate}/NetCDF/${runName}.nc`,
+  );
+  var reader = new NetCDFReader(data);
   const xLength = reader.getDataVariable("x").length;
-  const testHeader = reader.header;
   const windSpeed = reader.getDataVariable("10si")[0];
   const windTwoDimensions = convertToTwoDimensions(windSpeed, xLength);
-  const JSONData = JSON.stringify(windTwoDimensions);
-  console.log(testHeader);
-  return JSONData;
+  const dataPoints = [];
+  for (let i = 0; i < windTwoDimensions.length; i++) {
+    for (let j = 0; j < windTwoDimensions[0].length; j++) {
+      //Excludes points outside a box around Denmark
+      if (
+        i < windTwoDimensions.length * 0.5 ||
+        i > windTwoDimensions.length * 0.625
+      ) {
+        continue;
+      }
+      if (
+        j < windTwoDimensions[0].length * 0.65 ||
+        j > windTwoDimensions[0].length * 0.75
+      ) {
+        continue;
+      }
+      dataPoints.push(windTwoDimensions[i][j]);
+    }
+  }
+  const averageWindSpeed =
+    dataPoints.reduce(
+      (accumulator, currentvalue) => accumulator + currentvalue,
+    ) / dataPoints.length;
+  const averageArrayPoint = [runName, averageWindSpeed];
+  saveAverageToFile(folderDate, averageArrayPoint);
 }
 
-module.exports = { getData };
+function saveAverageToFile(folderDate, dataToSave) {
+  const runName = dataToSave[0];
+  const runAverage = dataToSave[1];
+
+  try {
+    if (
+      !fs.existsSync(`./input_files/${folderDate}/averagesFor${folderDate}`)
+    ) {
+      let dataWrappedForFirst = {};
+      dataWrappedForFirst[runName] = runAverage;
+      fs.writeFile(
+        `./input_files/${folderDate}/averagesFor${folderDate}`,
+        JSON.stringify(dataWrappedForFirst),
+        (err) => {
+          if (err) throw err;
+          console.log(`${dataToSave} saved to new file`);
+        },
+      );
+    } else {
+      const existingData = JSON.parse(
+        fs.readFileSync(`./input_files/${folderDate}/averagesFor${folderDate}`),
+      );
+      existingData[runName] = runAverage;
+      fs.writeFile(
+        `./input_files/${folderDate}/averagesFor${folderDate}`,
+        JSON.stringify(existingData),
+        (err) => {
+          if (err) throw err;
+          console.log(`${dataToSave} saved to existingFile`);
+        },
+      );
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
