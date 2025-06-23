@@ -2,22 +2,35 @@ const fs = require("fs");
 const { NetCDFReader } = require("netcdfjs");
 const https = require("https");
 const subProcess = require("child_process");
-function main() {
-  fetchJSONFromDMI();
+
+fetchJSONFromDMI();
+
+function retrieveData() {
+  const folderDate = generateCurrentDateString();
+  const existingData = fs.readFileSync(
+    `./input_files/${folderDate}/averagesFor${folderDate}`,
+  );
+  console.log(existingData);
+  return existingData;
 }
-main();
+
+function generateCurrentDateString() {
+  const dateNow = new Date();
+  const utcYear = dateNow.getUTCFullYear();
+  const utcMonth = padWithLeadingZero(dateNow.getUTCMonth() + 1);
+  const utcDay = padWithLeadingZero(dateNow.getUTCDate());
+  const dateString = `${utcYear}-${utcMonth}-${utcDay}`;
+  return dateString;
+}
 
 function generateApiLink() {
   const apiKey = fs.readFileSync("./secrets.txt", {
     encoding: "utf8",
     flag: "r",
   });
-  const dateNow = new Date();
-  const utcYear = dateNow.getUTCFullYear();
-  const utcMonth = padWithLeadingZero(dateNow.getUTCMonth() + 1);
-  const utcDay = padWithLeadingZero(dateNow.getUTCDate());
-  const apiLink = `https://dmigw.govcloud.dk/v1/forecastdata/collections/harmonie_dini_eps_means/items?modelRun=${utcYear}-${utcMonth}-${utcDay}T00%3A00%3A00Z&sortorder=datetime%2CDESC&bbox-crs=https%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FOGC%2F1.3%2FCRS84&api-key=${apiKey}`;
-  return [apiLink, `${utcYear}-${utcMonth}-${utcDay}`];
+  const dateString = generateCurrentDateString();
+  const apiLink = `https://dmigw.govcloud.dk/v1/forecastdata/collections/harmonie_dini_eps_means/items?modelRun=${dateString}T00%3A00%3A00Z&sortorder=datetime%2CDESC&bbox-crs=https%3A%2F%2Fwww.opengis.net%2Fdef%2Fcrs%2FOGC%2F1.3%2FCRS84&api-key=${apiKey}`;
+  return [apiLink, dateString];
 }
 
 function padWithLeadingZero(input) {
@@ -199,3 +212,5 @@ function saveAverageToFile(folderDate, dataToSave) {
     console.error(err);
   }
 }
+
+module.exports = { retrieveData };
